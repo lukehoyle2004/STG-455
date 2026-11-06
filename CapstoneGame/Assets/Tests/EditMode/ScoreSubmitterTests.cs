@@ -55,18 +55,55 @@ public class ScoreSubmitterTests
     }
 
     [Test]
-    public void GuestGamesAreNotRecorded()
+    public void GuestGamesWaitOnThePhone()
     {
-        Assert.IsFalse(submitter.Enqueue(500, 2, 60f));
+        Assert.IsFalse(submitter.Enqueue(500, 2, 60f), "A guest game is kept, not sent.");
+
+        Assert.AreEqual(1, submitter.GuestPendingCount);
+        Assert.AreEqual(ScoreSubmitter.GuestUserId, queue.Load()[0].user_id);
+        Assert.AreEqual(0, Run(submitter.Flush()));
+        Assert.IsEmpty(http.Requests, "Nothing can be sent until someone signs in.");
+    }
+
+    [Test]
+    public void NotConfiguredKeepsGuestGamesAndSendsNothing()
+    {
+        var offline = new ScoreSubmitter(SupabaseAuth.NotConfigured(), queue);
+        Assert.IsFalse(offline.Enqueue(500, 2, 60f));
+        Assert.AreEqual(1, offline.GuestPendingCount);
+        Assert.AreEqual(0, Run(offline.Flush()));
+        Assert.AreEqual(0, offline.ClaimGuestGames());
+    }
+
+    [Test]
+    public void SigningInUploadsGuestGames()
+    {
+        submitter.Enqueue(321, 4, 80f); // played as a guest
+        SignIn();
+        http.Respond(201, "{\"status\":\"saved\"}");
+
+        Assert.AreEqual(1, Run(submitter.Flush()));
+
+        StringAssert.Contains("\"score\":321", http.Last.Body);
+        Assert.AreEqual("Bearer player-token", http.Last.Headers["Authorization"]);
         Assert.AreEqual(0, submitter.PendingCount);
     }
 
     [Test]
-    public void NotConfiguredDoesNothing()
+    public void GuestGamesOlderThan30DaysAreNotUploaded()
     {
-        var offline = new ScoreSubmitter(SupabaseAuth.NotConfigured(), queue);
-        Assert.IsFalse(offline.Enqueue(500, 2, 60f));
-        Assert.AreEqual(0, Run(offline.Flush()));
+        queue.Save(new System.Collections.Generic.List<PendingScore>
+        {
+            new PendingScore { user_id = ScoreSubmitter.GuestUserId, score = 1, wave = 1, client_game_id = Guid.NewGuid().ToString(), played_at = "2026-09-01T12:00:00Z" },
+            new PendingScore { user_id = ScoreSubmitter.GuestUserId, score = 2, wave = 1, client_game_id = Guid.NewGuid().ToString(), played_at = "2026-11-01T12:00:00Z" },
+        });
+        SignIn();
+
+        Assert.AreEqual(1, submitter.ClaimGuestGames());
+
+        Assert.AreEqual(1, submitter.PendingCount);
+        Assert.AreEqual(2, queue.Load()[0].score);
+        Assert.AreEqual(PlayerId, queue.Load()[0].user_id);
     }
 
     [Test]
