@@ -51,8 +51,24 @@ ScoreServices.Submitter.Record(score, wave, secondsPlayed);
 
 - If the player is signed in, the game is saved on the phone and sent right away, or the next time they're
   online.
-- Guests are skipped; `Record` returns `false`.
+- **Guests**: the game is kept on the phone, not sent. When someone signs in or creates an account on that
+  phone, guest games from the last 30 days become theirs and are uploaded; older ones are dropped. `Record`
+  returns `false` for a guest game. On a shared phone, whoever signs in first gets the guest games.
 - Games waiting to be sent are also sent after signing in on the Login screen.
+
+## On-phone top 10
+
+Every finished game, guest or signed in, also goes into `LocalScores.Board`, the best 10 games on this
+phone. It's stored in PlayerPrefs and never sent anywhere, so it works offline and with no Supabase setup. For
+a "This phone" tab on the leaderboard screen:
+
+```csharp
+foreach (LocalScore s in LocalScores.Board.Top)   // best first
+    Debug.Log($"{s.score}  wave {s.wave}  {(s.guest ? "Guest" : "You")}  {s.played_at}");
+```
+
+`GameFlow.LastLocalRank` is the place of the game that just ended (1 = best, 0 = not in the top 10), which the
+Game Over screen could show as "#3 on this phone".
 
 ## Tuning
 

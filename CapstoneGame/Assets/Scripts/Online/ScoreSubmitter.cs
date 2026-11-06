@@ -25,7 +25,9 @@ namespace CapstoneGame.Online
     /// stored twice.
     ///
     /// From game-over code: <c>ScoreServices.Submitter.Record(score, wave, secondsPlayed);</c>
-    /// Guests (not signed in) are not recorded.
+    ///
+    /// Guest games are kept on the phone too. When someone signs in or creates an account on this phone,
+    /// guest games from the last <see cref="MaxGuestAgeDays"/> days become theirs and are uploaded.
     /// </summary>
     public sealed class ScoreSubmitter
     {
@@ -33,6 +35,12 @@ namespace CapstoneGame.Online
 
         /// <summary>Oldest games are dropped beyond this many waiting games.</summary>
         public const int MaxQueued = 50;
+
+        /// <summary>Marks a queued game that was played as a guest and not claimed by an account yet.</summary>
+        public const string GuestUserId = "guest";
+
+        /// <summary>Older guest games are not uploaded (the server rejects games older than this).</summary>
+        public const int MaxGuestAgeDays = 30;
 
         private readonly SupabaseAuth auth;
         private readonly IScoreQueueStore store;
@@ -49,26 +57,32 @@ namespace CapstoneGame.Online
         /// <summary>Games waiting to be sent, for every player who has used this device.</summary>
         public int PendingCount => store.Load().Count;
 
+        /// <summary>Guest games waiting on this phone for someone to sign in.</summary>
+        public int GuestPendingCount => store.Load().FindAll(p => p.user_id == GuestUserId).Count;
+
         /// <summary>
-        /// Queues a finished game for the signed-in player and starts sending it in the background.
-        /// Returns false (and does nothing) for guests or when online features aren't set up.
+        /// Queues a finished game. For a signed-in player it is sent right away in the background; a guest's game
+        /// waits on the phone until someone signs in. Returns true when the game was sent or queued to send.
         /// </summary>
         public bool Record(int score, int wave, float secondsPlayed)
         {
-            if (!Enqueue(score, wave, secondsPlayed)) return false;
-            FlushInBackground();
-            return true;
+            bool forPlayer = Enqueue(score, wave, secondsPlayed);
+            if (forPlayer) FlushInBackground();
+            return forPlayer;
         }
 
-        /// <summary>Queues a game without sending it yet (tests use this directly).</summary>
+        /// <summary>
+        /// Queues a game without sending it yet (tests use this directly). Returns true if it belongs to a
+        /// signed-in player, false if it was kept as a guest game.
+        /// </summary>
         public bool Enqueue(int score, int wave, float secondsPlayed)
         {
-            if (!auth.IsConfigured || !auth.IsSignedIn) return false;
+            bool signedIn = auth.IsConfigured && auth.IsSignedIn;
 
             List<PendingScore> queue = store.Load();
             queue.Add(new PendingScore
             {
-                user_id = auth.Session.UserId,
+                user_id = signedIn ? auth.Session.UserId : GuestUserId,
                 score = Math.Max(0, score),
                 wave = Math.Max(1, wave),
                 duration_s = Mathf.Max(0, Mathf.RoundToInt(secondsPlayed)),
@@ -77,8 +91,37 @@ namespace CapstoneGame.Online
             });
             if (queue.Count > MaxQueued) queue.RemoveRange(0, queue.Count - MaxQueued);
             store.Save(queue);
-            return true;
+            return signedIn;
         }
+
+        /// <summary>
+        /// Gives the guest games on this phone to the signed-in player so they get uploaded. Guest games older
+        /// than <see cref="MaxGuestAgeDays"/> are dropped instead. Returns how many games were claimed.
+        /// </summary>
+        public int ClaimGuestGames()
+        {
+            if (!auth.IsConfigured || !auth.IsSignedIn) return 0;
+
+            List<PendingScore> queue = store.Load();
+            DateTimeOffset oldest = clock().AddDays(-MaxGuestAgeDays);
+            int claimed = 0;
+
+            queue.RemoveAll(p => p.user_id == GuestUserId && !PlayedSince(p, oldest));
+            foreach (PendingScore p in queue)
+            {
+                if (p.user_id != GuestUserId) continue;
+                p.user_id = auth.Session.UserId;
+                claimed++;
+            }
+
+            store.Save(queue);
+            return claimed;
+        }
+
+        private static bool PlayedSince(PendingScore game, DateTimeOffset oldest) =>
+            DateTimeOffset.TryParse(game.played_at, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset playedAt) &&
+            playedAt >= oldest;
 
         /// <summary>Sends waiting games without waiting for the result; problems are logged as warnings.</summary>
         public async void FlushInBackground()
@@ -105,6 +148,7 @@ namespace CapstoneGame.Online
             {
                 if (!auth.IsConfigured || !auth.IsSignedIn) return 0;
                 string userId = auth.Session.UserId;
+                ClaimGuestGames(); // guest games played on this phone become this player's
                 if (!store.Load().Exists(p => p.user_id == userId)) return 0;
 
                 string token = await auth.GetAccessToken();

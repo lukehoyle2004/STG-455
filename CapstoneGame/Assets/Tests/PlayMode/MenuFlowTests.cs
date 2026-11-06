@@ -19,6 +19,7 @@ public class MenuFlowTests
     private const string HighScoreKey = "HighScore";
     private bool hadHighScore;
     private int savedHighScore;
+    private string savedQueue;
 
     [SetUp]
     public void SaveHighScore()
@@ -28,8 +29,12 @@ public class MenuFlowTests
         savedHighScore = PlayerPrefs.GetInt(HighScoreKey, 0);
         PlayerPrefs.DeleteKey(HighScoreKey);
 
-        // Never send these test games to the real leaderboard, even if this machine is signed in.
+        // Test games must never reach the real leaderboard, even if this machine is signed in: use a
+        // not-configured login, a clean score queue, and an in-memory on-phone top 10.
         AuthServices.Override(SupabaseAuth.NotConfigured());
+        savedQueue = PlayerPrefs.GetString(PlayerPrefsScoreQueueStore.Key, null);
+        PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
+        LocalScores.Override(new LocalScoreBoard(new MemoryLocalScoreStore()));
     }
 
     [TearDown]
@@ -37,70 +42,60 @@ public class MenuFlowTests
     {
         if (hadHighScore) PlayerPrefs.SetInt(HighScoreKey, savedHighScore);
         else PlayerPrefs.DeleteKey(HighScoreKey);
+
+        if (string.IsNullOrEmpty(savedQueue)) PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
+        else PlayerPrefs.SetString(PlayerPrefsScoreQueueStore.Key, savedQueue);
         PlayerPrefs.Save();
 
         AuthServices.Reset();
+        LocalScores.Reset();
     }
 
     [UnityTest]
     public IEnumerator GameOverSendsScoreForSignedInPlayer()
     {
-        string savedQueue = PlayerPrefs.GetString(PlayerPrefsScoreQueueStore.Key, null);
-        PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
-        try
-        {
-            var http = new FakeHttpTransport();
-            var sessions = new MemorySessionStore(
-                FakeHttpTransport.Session(System.DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds(), accessToken: "player-token"));
-            var auth = new SupabaseAuth("https://test-project.supabase.co", "test-anon-key", http, sessions);
-            AuthServices.Override(auth);
-            yield return null;
-            Task<AuthResult> restore = auth.RestoreSession();
-            yield return new WaitUntil(() => restore.IsCompleted);
-            http.Respond(201, "{\"status\":\"saved\"}");
+        var http = new FakeHttpTransport();
+        var sessions = new MemorySessionStore(
+            FakeHttpTransport.Session(System.DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds(), accessToken: "player-token"));
+        var auth = new SupabaseAuth("https://test-project.supabase.co", "test-anon-key", http, sessions);
+        AuthServices.Override(auth);
+        yield return null;
+        Task<AuthResult> restore = auth.RestoreSession();
+        yield return new WaitUntil(() => restore.IsCompleted);
+        http.Respond(201, "{\"status\":\"saved\"}");
 
-            yield return Load(GameFlow.GameScene);
-            GameFlow.ShowGameOver(1234, 3);
-            yield return WaitForScene(GameFlow.GameOverScene);
-            float end = Time.realtimeSinceStartup + 3f;
-            while (http.Requests.Count == 0 && Time.realtimeSinceStartup < end) yield return null;
+        yield return Load(GameFlow.GameScene);
+        GameFlow.ShowGameOver(1234, 3);
+        yield return WaitForScene(GameFlow.GameOverScene);
+        float end = Time.realtimeSinceStartup + 3f;
+        while (http.Requests.Count == 0 && Time.realtimeSinceStartup < end) yield return null;
 
-            Assert.AreEqual(1, http.Requests.Count, "Game over did not send the score.");
-            StringAssert.EndsWith("/functions/v1/submit-score", http.Last.Url);
-            StringAssert.Contains("\"score\":1234", http.Last.Body);
-            StringAssert.Contains("\"wave\":3", http.Last.Body);
-            Assert.AreEqual("Bearer player-token", http.Last.Headers["Authorization"]);
-            Assert.AreEqual(0, ScoreServices.Submitter.PendingCount, "Sent game should leave the queue.");
-        }
-        finally
-        {
-            if (string.IsNullOrEmpty(savedQueue)) PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
-            else PlayerPrefs.SetString(PlayerPrefsScoreQueueStore.Key, savedQueue);
-        }
+        Assert.AreEqual(1, http.Requests.Count, "Game over did not send the score.");
+        StringAssert.EndsWith("/functions/v1/submit-score", http.Last.Url);
+        StringAssert.Contains("\"score\":1234", http.Last.Body);
+        StringAssert.Contains("\"wave\":3", http.Last.Body);
+        Assert.AreEqual("Bearer player-token", http.Last.Headers["Authorization"]);
+        Assert.AreEqual(0, ScoreServices.Submitter.PendingCount, "Sent game should leave the queue.");
+
+        Assert.AreEqual(1, GameFlow.LastLocalRank);
+        Assert.IsFalse(LocalScores.Board.Top[0].guest);
     }
 
     [UnityTest]
-    public IEnumerator GuestGameOverSendsNothing()
+    public IEnumerator GuestGameIsKeptOnThePhone()
     {
-        string savedQueue = PlayerPrefs.GetString(PlayerPrefsScoreQueueStore.Key, null);
-        PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
-        try
-        {
-            var http = new FakeHttpTransport();
-            AuthServices.Override(new SupabaseAuth("https://test-project.supabase.co", "test-anon-key", http, new MemorySessionStore()));
+        var http = new FakeHttpTransport();
+        AuthServices.Override(new SupabaseAuth("https://test-project.supabase.co", "test-anon-key", http, new MemorySessionStore()));
 
-            yield return Load(GameFlow.GameScene);
-            GameFlow.ShowGameOver(50, 1);
-            yield return WaitForScene(GameFlow.GameOverScene);
+        yield return Load(GameFlow.GameScene);
+        GameFlow.ShowGameOver(50, 1);
+        yield return WaitForScene(GameFlow.GameOverScene);
 
-            Assert.IsEmpty(http.Requests);
-            Assert.AreEqual(0, ScoreServices.Submitter.PendingCount);
-        }
-        finally
-        {
-            if (string.IsNullOrEmpty(savedQueue)) PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
-            else PlayerPrefs.SetString(PlayerPrefsScoreQueueStore.Key, savedQueue);
-        }
+        Assert.IsEmpty(http.Requests, "A guest's game must not be sent.");
+        Assert.AreEqual(1, ScoreServices.Submitter.GuestPendingCount, "Guest game should wait for a sign-in.");
+        Assert.AreEqual(1, GameFlow.LastLocalRank);
+        Assert.AreEqual(50, LocalScores.Board.Top[0].score);
+        Assert.IsTrue(LocalScores.Board.Top[0].guest);
     }
 
     [UnityTest]

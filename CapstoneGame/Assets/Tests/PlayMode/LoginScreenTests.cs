@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using CapstoneGame.Auth;
+using CapstoneGame.Online;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -39,8 +40,47 @@ public class LoginScreenTests
         yield return WaitUntilIdle();
     }
 
+    private string savedQueue;
+
+    [SetUp]
+    public void ClearScoreQueue()
+    {
+        // Signing in claims guest games from the queue; keep this machine's real queue out of the tests.
+        savedQueue = PlayerPrefs.GetString(PlayerPrefsScoreQueueStore.Key, null);
+        PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
+    }
+
     [TearDown]
-    public void ResetAuth() => AuthServices.Reset();
+    public void ResetAuth()
+    {
+        AuthServices.Reset();
+        if (string.IsNullOrEmpty(savedQueue)) PlayerPrefs.DeleteKey(PlayerPrefsScoreQueueStore.Key);
+        else PlayerPrefs.SetString(PlayerPrefsScoreQueueStore.Key, savedQueue);
+        PlayerPrefs.Save();
+    }
+
+    [UnityTest]
+    public IEnumerator SigningInUploadsGuestGames()
+    {
+        yield return LoadLogin();
+        ScoreServices.Submitter.Enqueue(4321, 6, 120f); // played as a guest before signing in
+        Assert.AreEqual(1, ScoreServices.Submitter.GuestPendingCount);
+
+        http.Respond(200, FakeHttpTransport.SessionJson(expiresAt: InOneHour)); // sign in
+        http.Respond(201, "{\"status\":\"saved\"}");                             // guest game upload
+        screen.EmailField.text = "pilot@example.com";
+        screen.PasswordField.text = "hunter22";
+        screen.SignInButton.onClick.Invoke();
+        yield return WaitUntilIdle();
+
+        float end = Time.realtimeSinceStartup + 3f;
+        while (http.Requests.Count < 2 && Time.realtimeSinceStartup < end) yield return null;
+
+        Assert.AreEqual(2, http.Requests.Count, "Guest game was not uploaded after signing in.");
+        StringAssert.EndsWith("/functions/v1/submit-score", http.Last.Url);
+        StringAssert.Contains("\"score\":4321", http.Last.Body);
+        Assert.AreEqual(0, ScoreServices.Submitter.PendingCount);
+    }
 
     private IEnumerator WaitUntilIdle(float timeout = 3f)
     {

@@ -1,3 +1,4 @@
+using CapstoneGame.Auth;
 using CapstoneGame.Online;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -27,6 +28,9 @@ public static class GameFlow
     /// <summary>True when the game that just ended set a new best score.</summary>
     public static bool LastWasNewHighScore { get; private set; }
 
+    /// <summary>Place of the game that just ended in the on-phone top 10 (1 = best), or 0 if it didn't make it.</summary>
+    public static int LastLocalRank { get; private set; }
+
     /// <summary>Best score saved on this device.</summary>
     public static int HighScore => PlayerPrefs.GetInt(HighScoreKey, 0);
 
@@ -47,7 +51,12 @@ public static class GameFlow
             PlayerPrefs.Save();
         }
 
-        // Send the game to the online leaderboard (signed-in players only; kept for later when offline).
+        // On-phone top 10, for everyone including guests.
+        bool signedIn = AuthServices.Client.IsSignedIn;
+        LastLocalRank = LocalScores.Board.Record(LastScore, LastWave, guest: !signedIn);
+
+        // Online leaderboard: sent now for signed-in players (or later when offline). A guest's game waits on
+        // the phone and is uploaded if they sign in or create an account within 30 days.
         // Called from the Game scene, so the time since it loaded is the game's length.
         ScoreServices.Submitter.Record(LastScore, LastWave, Time.timeSinceLevelLoad);
 
