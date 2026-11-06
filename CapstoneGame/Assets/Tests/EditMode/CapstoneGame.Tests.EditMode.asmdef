@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "CapstoneGame.Runtime",
+        "CapstoneGame.Tests.PlayMode",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
