@@ -32,10 +32,13 @@ public class SafeArea : MonoBehaviour
         lastScreen = new Vector2Int(Screen.width, Screen.height);
         if (Screen.width <= 0 || Screen.height <= 0) return;
 
+        // Keep the panel on screen even if the reported safe area isn't (the Editor can report the
+        // Device Simulator's safe area while the Game view renders at a different size).
         Vector2 min = safe.position;
         Vector2 max = safe.position + safe.size;
-        min.x /= Screen.width; min.y /= Screen.height;
-        max.x /= Screen.width; max.y /= Screen.height;
+        min = new Vector2(Mathf.Clamp01(min.x / Screen.width), Mathf.Clamp01(min.y / Screen.height));
+        max = new Vector2(Mathf.Clamp01(max.x / Screen.width), Mathf.Clamp01(max.y / Screen.height));
+        if (max.x <= min.x || max.y <= min.y) { min = Vector2.zero; max = Vector2.one; }
 
         rect.anchorMin = min;
         rect.anchorMax = max;

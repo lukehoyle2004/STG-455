@@ -16,8 +16,8 @@ using UnityEngine.UI;
 /// </summary>
 public class LoginScreen : MonoBehaviour
 {
-    [Tooltip("Scene loaded by the Play and Play as guest buttons. It must be in File > Build Profiles.")]
-    [SerializeField] private string gameSceneName = "SampleScene";
+    [Tooltip("Scene loaded by the Play and Play as guest buttons (the Start Menu). It must be in File > Build Profiles.")]
+    [SerializeField] private string gameSceneName = GameFlow.StartMenuScene;
 
     // Sizes are in reference pixels for a 1080 x 1920 portrait screen (see CanvasScaler below).
     private const float RowHeight = 180f;

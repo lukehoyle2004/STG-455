@@ -12,8 +12,8 @@ using UnityEngine.TestTools;
 /// </summary>
 public class PlayerSmokeTests
 {
-    /// <summary>The scene that contains the player. Update this when the real Game scene is added.</summary>
-    private const string GameplayScene = "SampleScene";
+    /// <summary>The scene that contains the player.</summary>
+    private const string GameplayScene = GameFlow.GameScene;
 
     private PlayerController player;
     private PlayerShooting shooter;

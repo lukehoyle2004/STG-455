@@ -15,7 +15,7 @@ using UnityEngine.UI;
 public class LoginScreenTests
 {
     private const string LoginScene = "Login";
-    private const string GameScene = "SampleScene";
+    private const string GameScene = GameFlow.StartMenuScene; // Play and Play as guest open the Start Menu
 
     private FakeHttpTransport http;
     private MemorySessionStore store;
@@ -141,7 +141,7 @@ public class LoginScreenTests
         float end = Time.realtimeSinceStartup + 5f;
         while (SceneManager.GetActiveScene().name != GameScene && Time.realtimeSinceStartup < end) yield return null;
 
-        Assert.AreEqual(GameScene, SceneManager.GetActiveScene().name, "Play as guest did not open the game.");
+        Assert.AreEqual(GameScene, SceneManager.GetActiveScene().name, "Play as guest did not open the Start Menu.");
     }
 
     private static void AssertOnScreenAndLargeEnough(RectTransform rect)
