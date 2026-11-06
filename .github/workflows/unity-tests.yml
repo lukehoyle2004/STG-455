@@ -1,0 +1,94 @@
+# Runs the Unity Edit Mode and Play Mode tests on every pull request and on every push to main.
+# FR5: "automated tests that load every scene and menu screen ... running in CI on every pull request."
+#
+# One-time setup (repo admin): add these under Settings > Secrets and variables > Actions
+#   UNITY_LICENSE   contents of the Unity license file (.ulf) from a machine where Unity is activated
+#   UNITY_EMAIL     Unity account email
+#   UNITY_PASSWORD  Unity account password
+# See https://game.ci/docs/github/activation for how to get the license file for a Personal license.
+#
+# To block merges when tests fail, require the "Unity tests (editmode)" and "Unity tests (playmode)"
+# checks in the branch protection rule for main.
+
+name: Unity tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the older, still-running test run.
+concurrency:
+  group: unity-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write # lets the test runner post a results summary on the pull request
+
+env:
+  PROJECT_PATH: CapstoneGame
+
+jobs:
+  test:
+    name: Unity tests (${{ matrix.testMode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        testMode: [editmode, playmode]
+
+    steps:
+      - name: Check Unity license secrets
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$UNITY_LICENSE" ] && missing="$missing UNITY_LICENSE"
+          [ -z "$UNITY_EMAIL" ] && missing="$missing UNITY_EMAIL"
+          [ -z "$UNITY_PASSWORD" ] && missing="$missing UNITY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. A repo admin must add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Unity's Library folder is a cache of imported assets. Restoring it turns a long first import into
+      # a few minutes. The key changes whenever assets, packages, or settings change.
+      - name: Restore Library cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PROJECT_PATH }}/Library
+          key: Library-${{ matrix.testMode }}-${{ hashFiles(format('{0}/Assets/**', env.PROJECT_PATH), format('{0}/Packages/**', env.PROJECT_PATH), format('{0}/ProjectSettings/**', env.PROJECT_PATH)) }}
+          restore-keys: |
+            Library-${{ matrix.testMode }}-
+            Library-
+
+      - name: Run ${{ matrix.testMode }} tests
+        id: tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ${{ env.PROJECT_PATH }}
+          testMode: ${{ matrix.testMode }}
+          artifactsPath: artifacts/${{ matrix.testMode }}
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Unity ${{ matrix.testMode }} results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-test-results-${{ matrix.testMode }}
+          path: ${{ steps.tests.outputs.artifactsPath }}
+          if-no-files-found: warn
+          retention-days: 30
