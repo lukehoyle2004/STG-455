@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using CapstoneGame.Auth;
+using CapstoneGame.Online;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -110,6 +111,9 @@ public class LoginScreen : MonoBehaviour
 
         if (result.Succeeded) PasswordField.text = "";
         ShowPanels();
+
+        // Send any games that were played offline now that we know who the player is.
+        if (auth.IsSignedIn) ScoreServices.Submitter.FlushInBackground();
     }
 
     private void OnSessionChanged(AuthSession session)

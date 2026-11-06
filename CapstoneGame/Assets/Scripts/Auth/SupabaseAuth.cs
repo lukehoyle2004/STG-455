@@ -37,6 +37,15 @@ namespace CapstoneGame.Auth
         public bool IsSignedIn => Session != null;
         public bool IsConfigured => http != null && !string.IsNullOrEmpty(baseUrl) && !string.IsNullOrEmpty(apiKey);
 
+        /// <summary>The project URL without a trailing slash, for other Supabase calls (functions, RPC).</summary>
+        public string ProjectUrl => baseUrl;
+
+        /// <summary>The public (anon / publishable) key sent as the <c>apikey</c> header.</summary>
+        public string ApiKey => apiKey;
+
+        /// <summary>The network transport, shared so other Supabase calls behave (and are faked in tests) the same way.</summary>
+        public IHttpTransport Http => http;
+
         /// <summary>Raised after every sign in, refresh and sign out. The argument is the new session or null.</summary>
         public event Action<AuthSession> SessionChanged;
 
