@@ -30,6 +30,25 @@ public class ProjectSetupTests
     }
 
     [Test]
+    public void EveryScreenIsInTheBuildInPlayOrder()
+    {
+        var names = new System.Collections.Generic.List<string>();
+        foreach (EditorBuildSettingsScene s in EditorBuildSettings.scenes)
+            if (s.enabled) names.Add(System.IO.Path.GetFileNameWithoutExtension(s.path));
+
+        foreach (string scene in new[] { GameFlow.StartMenuScene, GameFlow.GameScene, GameFlow.GameOverScene })
+            Assert.Contains(scene, names, $"{scene} is not in the build list, so the game can't open it.");
+
+        // A Login screen may come first; after it the flow is Start Menu, Game, Game Over.
+        Assert.That(names.IndexOf(GameFlow.StartMenuScene), Is.LessThan(names.IndexOf(GameFlow.GameScene)),
+            "The Start Menu must come before the Game scene in the build list.");
+        Assert.That(names.IndexOf(GameFlow.GameScene), Is.LessThan(names.IndexOf(GameFlow.GameOverScene)),
+            "The Game scene must come before Game Over in the build list.");
+        Assert.That(names.IndexOf(GameFlow.StartMenuScene), Is.LessThanOrEqualTo(1),
+            "The Start Menu must be the first scene, or the second after a Login scene.");
+    }
+
+    [Test]
     public void BuildScenesHaveNoMissingScripts()
     {
         var problems = new StringBuilder();
