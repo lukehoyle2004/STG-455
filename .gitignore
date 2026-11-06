@@ -1,0 +1,8 @@
+# Secrets: never commit Supabase keys or env files
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+**/SupabaseSecrets*.asset
+**/SupabaseSecrets*.asset.meta
