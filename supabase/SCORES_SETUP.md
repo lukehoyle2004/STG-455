@@ -43,11 +43,9 @@ shows every call.
 
 ## Use it from the game
 
-When a game ends:
+This is already connected: `GameFlow.ShowGameOver(score, wave)`, which the game calls when it ends, also calls
 
 ```csharp
-using CapstoneGame.Online;
-
 ScoreServices.Submitter.Record(score, wave, secondsPlayed);
 ```
 

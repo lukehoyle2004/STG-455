@@ -1,3 +1,4 @@
+using CapstoneGame.Online;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -45,6 +46,10 @@ public static class GameFlow
             PlayerPrefs.SetInt(HighScoreKey, LastScore);
             PlayerPrefs.Save();
         }
+
+        // Send the game to the online leaderboard (signed-in players only; kept for later when offline).
+        // Called from the Game scene, so the time since it loaded is the game's length.
+        ScoreServices.Submitter.Record(LastScore, LastWave, Time.timeSinceLevelLoad);
 
         Load(GameOverScene);
     }
