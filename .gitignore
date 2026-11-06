@@ -6,6 +6,9 @@ supabase/.temp/
 supabase/.branches/
 **/SupabaseSecrets*.asset
 **/SupabaseSecrets*.asset.meta
+# Tools > Supabase > Create or Select Secrets File puts the secrets file in Assets/Resources;
+# the folder holds nothing else, so its .meta stays local too.
+CapstoneGame/Assets/Resources.meta
 
 # Unity test output: results files from local runs, and CI artifacts
 test-results*.xml
